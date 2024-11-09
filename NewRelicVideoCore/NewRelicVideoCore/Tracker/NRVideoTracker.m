@@ -69,7 +69,7 @@
 }
 
 - (void)setPlayer:(id)player {
-    [self sendVideoEvent:PLAYER_READY];
+    [self sendEvent:PLAYER_READY];
     [self.state goPlayerReady];
 }
 
@@ -125,10 +125,11 @@
     [attr setObject:[self getPlayerVersion] forKey:@"playerVersion"];
     [attr setObject:[self getViewSession] forKey:@"viewSession"];
     [attr setObject:[self getViewId] forKey:@"viewId"];
+    [attr setObject:@(self.state.isAd) forKey:@"isAd"];
     [attr setObject:@(self.numberOfAds) forKey:@"numberOfAds"];
     [attr setObject:@(self.numberOfVideos) forKey:@"numberOfVideos"];
     [attr setObject:@(self.numberOfErrors) forKey:@"numberOfErrors"];
-    [attr setObject:@(self.playtimeSinceLastEvent) forKey:@"elapsedTime"];
+    [attr setObject:@(self.playtimeSinceLastEvent) forKey:@"playtimeSinceLastEvent"];
     [attr setObject:@(self.totalPlaytime) forKey:@"totalPlaytime"];
     
     if (self.state.isAd) {
@@ -189,15 +190,30 @@
 
 #pragma mark - Senders
 
+- (void)sendEvent:(NSString *)action attributes:(NSDictionary *)attributes {
+    
+    // Calculate playtimeSinceLastEvent and totalPlaytime
+    if (self.playtimeSinceLastEventTimestamp > 0) {
+        self.playtimeSinceLastEvent = (long)(1000.0f * ([[NSDate date] timeIntervalSince1970] - self.playtimeSinceLastEventTimestamp));
+        self.totalPlaytime += self.playtimeSinceLastEvent;
+        self.playtimeSinceLastEventTimestamp = [[NSDate date] timeIntervalSince1970];
+    }
+    else {
+        self.playtimeSinceLastEvent = 0;
+    }
+    
+    [super sendEvent:action attributes:attributes];
+}
+
 - (void)sendRequest {
     if ([self.state goRequest]) {
         self.playtimeSinceLastEventTimestamp = 0;
         
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_REQUEST];
+            [self sendEvent:AD_REQUEST];
         }
         else {
-            [self sendVideoEvent:CONTENT_REQUEST];
+            [self sendEvent:CONTENT_REQUEST];
         }
     }
 }
@@ -210,14 +226,14 @@
             if ([self.linkedTracker isKindOfClass:[NRVideoTracker class]]) {
                 [(NRVideoTracker *)self.linkedTracker setNumberOfAds:self.numberOfAds];
             }
-            [self sendVideoAdEvent:AD_START];
+            [self sendEvent:AD_START];
         }
         else {
             if ([self.linkedTracker isKindOfClass:[NRVideoTracker class]]) {
                 self.totalAdPlaytime = [(NRVideoTracker *)self.linkedTracker getTotalAdPlaytime].longValue;
             }
             self.numberOfVideos++;
-            [self sendVideoEvent:CONTENT_START];
+            [self sendEvent:CONTENT_START];
         }
         self.playtimeSinceLastEventTimestamp = [[NSDate date] timeIntervalSince1970];
     }
@@ -226,10 +242,10 @@
 - (void)sendPause {
     if ([self.state goPause]) {
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_PAUSE];
+            [self sendEvent:AD_PAUSE];
         }
         else {
-            [self sendVideoEvent:CONTENT_PAUSE];
+            [self sendEvent:CONTENT_PAUSE];
         }
         self.playtimeSinceLastEventTimestamp = 0;
     }
@@ -238,10 +254,10 @@
 - (void)sendResume {
     if ([self.state goResume]) {
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_RESUME];
+            [self sendEvent:AD_RESUME];
         }
         else {
-            [self sendVideoEvent:CONTENT_RESUME];
+            [self sendEvent:CONTENT_RESUME];
         }
         if (!self.state.isBuffering && !self.state.isSeeking) {
             self.playtimeSinceLastEventTimestamp = [[NSDate date] timeIntervalSince1970];
@@ -252,14 +268,14 @@
 - (void)sendEnd {
     if ([self.state goEnd]) {
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_END];
+            [self sendEvent:AD_END];
             if ([self.linkedTracker isKindOfClass:[NRVideoTracker class]]) {
                 [(NRVideoTracker *)self.linkedTracker adHappened];
             }
             self.totalAdPlaytime = self.totalAdPlaytime + self.totalPlaytime;
         }
         else {
-            [self sendVideoEvent:CONTENT_END];
+            [self sendEvent:CONTENT_END];
         }
         
         [self stopHeartbeat];
@@ -275,10 +291,10 @@
 - (void)sendSeekStart {
     if ([self.state goSeekStart]) {
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_SEEK_START];
+            [self sendEvent:AD_SEEK_START];
         }
         else {
-            [self sendVideoEvent:CONTENT_SEEK_START];
+            [self sendEvent:CONTENT_SEEK_START];
         }
         self.playtimeSinceLastEventTimestamp = 0;
     }
@@ -287,10 +303,10 @@
 - (void)sendSeekEnd {
     if ([self.state goSeekEnd]) {
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_SEEK_END];
+            [self sendEvent:AD_SEEK_END];
         }
         else {
-            [self sendVideoEvent:CONTENT_SEEK_END];
+            [self sendEvent:CONTENT_SEEK_END];
         }
         if (!self.state.isBuffering && !self.state.isPaused) {
             self.playtimeSinceLastEventTimestamp = [[NSDate date] timeIntervalSince1970];
@@ -302,10 +318,10 @@
     if ([self.state goBufferStart]) {
         self.bufferType = [self calculateBufferType];
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_BUFFER_START];
+            [self sendEvent:AD_BUFFER_START];
         }
         else {
-            [self sendVideoEvent:CONTENT_BUFFER_START];
+            [self sendEvent:CONTENT_BUFFER_START];
         }
         self.playtimeSinceLastEventTimestamp = 0;
     }
@@ -317,10 +333,10 @@
             self.bufferType = [self calculateBufferType];
         }
         if (self.state.isAd) {
-            [self sendVideoAdEvent:AD_BUFFER_END];
+            [self sendEvent:AD_BUFFER_END];
         }
         else {
-            [self sendVideoEvent:CONTENT_BUFFER_END];
+            [self sendEvent:CONTENT_BUFFER_END];
         }
         if (!self.state.isSeeking && !self.state.isPaused) {
             self.playtimeSinceLastEventTimestamp = [[NSDate date] timeIntervalSince1970];
@@ -331,19 +347,19 @@
 
 - (void)sendHeartbeat {
     if (self.state.isAd) {
-        [self sendVideoAdEvent:AD_HEARTBEAT];
+        [self sendEvent:AD_HEARTBEAT];
     }
     else {
-        [self sendVideoEvent:CONTENT_HEARTBEAT];
+        [self sendEvent:CONTENT_HEARTBEAT];
     }
 }
 
 - (void)sendRenditionChange {
     if (self.state.isAd) {
-        [self sendVideoAdEvent:AD_RENDITION_CHANGE];
+        [self sendEvent:AD_RENDITION_CHANGE];
     }
     else {
-        [self sendVideoEvent:CONTENT_RENDITION_CHANGE];
+        [self sendEvent:CONTENT_RENDITION_CHANGE];
     }
 }
 
@@ -370,12 +386,12 @@
             @"errorCode": [NSNull null]
         };
     }
-    [self generateElapsedTime];
+    
     if (self.state.isAd) {
-        [self sendVideoErrorEvent:AD_ERROR attributes:errAttr];
+        [self sendEvent:AD_ERROR attributes:errAttr];
     }
     else {
-        [self sendVideoErrorEvent:CONTENT_ERROR attributes:errAttr];
+        [self sendEvent:CONTENT_ERROR attributes:errAttr];
     }
 }
 
@@ -383,25 +399,25 @@
     if (self.state.isAd && [self.state goAdBreakStart]) {
         self.adBreakIdIndex++;
         self.totalAdPlaytime = 0;
-        [self sendVideoAdEvent:AD_BREAK_START];
+        [self sendEvent:AD_BREAK_START];
     }
 }
 
 - (void)sendAdBreakEnd {
     if (self.state.isAd && [self.state goAdBreakEnd]) {
-        [self sendVideoAdEvent:AD_BREAK_END];
+        [self sendEvent:AD_BREAK_END];
     }
 }
 
 - (void)sendAdQuartile {
     if (self.state.isAd) {
-        [self sendVideoAdEvent:AD_QUARTILE];
+        [self sendEvent:AD_QUARTILE];
     }
 }
 
 - (void)sendAdClick {
     if (self.state.isAd) {
-        [self sendVideoAdEvent:AD_CLICK];
+        [self sendEvent:AD_CLICK];
     }
 }
 
@@ -588,18 +604,6 @@
     [self addTimeSinceEntryWithAction:AD_BREAK_START attribute:@"timeSinceAdBreakBegin" applyTo:@"^AD_BREAK_END$"];
     
     [self addTimeSinceEntryWithAction:AD_QUARTILE attribute:@"timeSinceLastAdQuartile" applyTo:@"^AD_QUARTILE$"];
-}
-
-- (void) generateElapsedTime {
-    // Calculate playtimeSinceLastEvent and totalPlaytime
-    if (self.playtimeSinceLastEventTimestamp > 0) {
-        self.playtimeSinceLastEvent = (long)(1000.0f * ([[NSDate date] timeIntervalSince1970] - self.playtimeSinceLastEventTimestamp));
-        self.totalPlaytime += self.playtimeSinceLastEvent;
-        self.playtimeSinceLastEventTimestamp = [[NSDate date] timeIntervalSince1970];
-    }
-    else {
-        self.playtimeSinceLastEvent = 0;
-    }
 }
 
 #pragma mark - Private
